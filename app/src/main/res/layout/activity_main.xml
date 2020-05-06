@@ -6,11 +6,11 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <TextView
+    <airtel.in.voicedemo.TypeWriter
         android:id="@+id/incoming"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="25dp"
+        android:textSize="25sp"
         android:lines="5"
         android:layout_marginBottom="10dp"
         android:layout_centerHorizontal="true"

@@ -26,7 +26,7 @@ import okio.ByteString;
 public class MainActivity extends AppCompatActivity {
 
     private Button startButton,stopButton;
-    private TextView textView;
+    private TypeWriter textView;
     WebSocket ws;
 
     AudioRecord recorder;
@@ -43,7 +43,7 @@ public class MainActivity extends AppCompatActivity {
         private static final int NORMAL_CLOSURE_STATUS = 1000;
         @Override
         public void onOpen(WebSocket webSocket, Response response) {
-            Log.d("OPENED","opened");
+            Log.d("STTRESPONSE","opened");
             //webSocket.close(NORMAL_CLOSURE_STATUS, "Goodbye !");
         }
         @Override
@@ -51,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 JSONObject jsonObject = new JSONObject(text);
                 output(jsonObject.getString("text"));
+
             } catch (JSONException e) {
                 e.printStackTrace();
             }
@@ -80,8 +81,9 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                Log.d("response", txt);
-                textView.setText( textView.getText() + "\n" + txt);
+                Log.d("STTRESPONSE", txt);
+                textView.setCharacterDelay(50);
+                textView.animateText(textView.getText() + "\n" + txt);
             }
         });
     }
@@ -93,7 +95,7 @@ public class MainActivity extends AppCompatActivity {
 
         startButton = (Button) findViewById (R.id.button);
         stopButton = (Button) findViewById (R.id.button2);
-        textView = (TextView) findViewById(R.id.incoming);
+        textView = (TypeWriter) findViewById(R.id.incoming);
 
         startButton.setOnClickListener (startListener);
         stopButton.setOnClickListener (stopListener);
@@ -144,20 +146,19 @@ public class MainActivity extends AppCompatActivity {
                     //reading data from MIC into buffer
                     minBufSize = recorder.read(buffer, 0, buffer.length);
 
-                    //ws.send(buffer.toString());
-                    //ws.send(ByteString.of(buffer, 0, buffer.length));
-                    JSONObject jsonObject = new JSONObject();
-                    try {
-                        jsonObject.put("eof", 1);
-                    } catch (JSONException e) {
-                        e.printStackTrace();
-                    }
                     ws.send(ByteString.of(buffer));
-                    ws.send(jsonObject.toString());
                     System.out.println("MinBufferSize: " +minBufSize);
                     counter = counter + 1;
+                    if(counter > 500) { break;}
                 }
 
+                JSONObject jsonObject = new JSONObject();
+                try {
+                    jsonObject.put("eof", 1);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+                ws.send(jsonObject.toString());
 
             }
 
