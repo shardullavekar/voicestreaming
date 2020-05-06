@@ -10,7 +10,9 @@
         android:id="@+id/incoming"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Some Text"
+        android:textSize="25dp"
+        android:lines="5"
+        android:layout_marginBottom="10dp"
         android:layout_centerHorizontal="true"
         android:layout_above="@+id/button" />
 

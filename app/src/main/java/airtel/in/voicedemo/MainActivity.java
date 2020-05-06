@@ -37,17 +37,23 @@ public class MainActivity extends AppCompatActivity {
     int minBufSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat);
     private boolean status = true;
     private OkHttpClient client;
+    Thread streamThread;
 
     private final class EchoWebSocketListener extends WebSocketListener {
         private static final int NORMAL_CLOSURE_STATUS = 1000;
         @Override
         public void onOpen(WebSocket webSocket, Response response) {
-            output("opened");
+            Log.d("OPENED","opened");
             //webSocket.close(NORMAL_CLOSURE_STATUS, "Goodbye !");
         }
         @Override
         public void onMessage(WebSocket webSocket, String text) {
-            output("Receiving : " + text);
+            try {
+                JSONObject jsonObject = new JSONObject(text);
+                output(jsonObject.getString("text"));
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
         }
         @Override
         public void onMessage(WebSocket webSocket, ByteString bytes) {
@@ -65,7 +71,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void start() {
-        Request request = new Request.Builder().url("ws://").build();
+        Request request = new Request.Builder().url("ws://ec2-52-12-162-217.us-west-2.compute.amazonaws.com:8080").build();
         EchoWebSocketListener listener = new EchoWebSocketListener();
         ws = client.newWebSocket(request, listener);
         client.dispatcher().executorService().shutdown();
@@ -74,6 +80,7 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
+                Log.d("response", txt);
                 textView.setText( textView.getText() + "\n" + txt);
             }
         });
@@ -99,6 +106,8 @@ public class MainActivity extends AppCompatActivity {
         public void onClick(View arg0) {
             status = false;
             recorder.release();
+            streamThread.interrupt();
+            textView.setText("");
             Log.d("VS","Recorder released");
         }
 
@@ -117,7 +126,7 @@ public class MainActivity extends AppCompatActivity {
     public void startStreaming() {
 
 
-        Thread streamThread = new Thread(new Runnable() {
+        streamThread = new Thread(new Runnable() {
 
             @Override
             public void run() {
@@ -148,6 +157,7 @@ public class MainActivity extends AppCompatActivity {
                     System.out.println("MinBufferSize: " +minBufSize);
                     counter = counter + 1;
                 }
+
 
             }
 
