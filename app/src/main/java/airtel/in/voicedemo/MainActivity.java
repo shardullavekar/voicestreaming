@@ -9,6 +9,7 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -34,26 +35,39 @@ public class MainActivity extends AppCompatActivity {
     private int sampleRate = 16000 ; // 44100 for music
     private int channelConfig = AudioFormat.CHANNEL_IN_MONO;
     private int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
-    int minBufSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat);
+    private int minBufSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat);
     private boolean status = true;
     private OkHttpClient client;
     Thread streamThread;
+    short threshold=15000;
 
     private final class EchoWebSocketListener extends WebSocketListener {
         private static final int NORMAL_CLOSURE_STATUS = 1000;
         @Override
         public void onOpen(WebSocket webSocket, Response response) {
             Log.d("STTRESPONSE","opened");
-            //webSocket.close(NORMAL_CLOSURE_STATUS, "Goodbye !");
         }
         @Override
         public void onMessage(WebSocket webSocket, String text) {
+            JSONObject jsonObject;
             try {
-                JSONObject jsonObject = new JSONObject(text);
-                output(jsonObject.getString("text"));
+                Log.d("ALLTEXT", text);
+                jsonObject = new JSONObject(text);
+
+                if (jsonObject.has("text")) {
+                    output(jsonObject.getString("text"));
+                    stopRecording();
+                    startRecording();
+                }
+
+                if (jsonObject.has("partial")) {
+                    output(jsonObject.getString("partial"));
+                }
+
 
             } catch (JSONException e) {
                 e.printStackTrace();
+
             }
         }
         @Override
@@ -72,7 +86,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void start() {
-        Request request = new Request.Builder().url("ws://ec2-52-12-162-217.us-west-2.compute.amazonaws.com:8080").build();
+        Request request = new Request.Builder().url("ws://").build();
         EchoWebSocketListener listener = new EchoWebSocketListener();
         ws = client.newWebSocket(request, listener);
         client.dispatcher().executorService().shutdown();
@@ -81,9 +95,11 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
+                if (txt.isEmpty()) {
+                    return;
+                }
                 Log.d("STTRESPONSE", txt);
-                textView.setCharacterDelay(50);
-                textView.animateText(textView.getText() + "\n" + txt);
+                textView.setText(txt);
             }
         });
     }
@@ -100,17 +116,15 @@ public class MainActivity extends AppCompatActivity {
         startButton.setOnClickListener (startListener);
         stopButton.setOnClickListener (stopListener);
         client = new OkHttpClient();
+        start();
     }
 
     private final OnClickListener stopListener = new OnClickListener() {
 
         @Override
         public void onClick(View arg0) {
-            status = false;
-            recorder.release();
-            streamThread.interrupt();
+            stopRecording();
             textView.setText("");
-            Log.d("VS","Recorder released");
         }
 
     };
@@ -119,50 +133,110 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onClick(View arg0) {
-            status = true;
-            startStreaming();
+            startRecording();
         }
 
     };
 
-    public void startStreaming() {
+    private void startRecording() {
+        status = true;
+        startStreaming();
+    }
 
+    private void stopRecording() {
+        status = false;
+        recorder.release();
+        streamThread.interrupt();
+        Log.d("ALLTEXT","Recorder released");
+    }
 
-        streamThread = new Thread(new Runnable() {
+    private class StreamVoice implements Runnable {
 
-            @Override
-            public void run() {
-                start();
-                byte[] buffer = new byte[minBufSize];
+        @Override
+        public void run() {
+            short[] buffer = new short[AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)];
 
-                recorder = new AudioRecord(MediaRecorder.AudioSource.MIC,sampleRate,channelConfig,audioFormat,minBufSize*10);
-                Log.d("VS", "Recorder initialized");
+            recorder = new AudioRecord(MediaRecorder.AudioSource.MIC,sampleRate,channelConfig,audioFormat,AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)*10);
+            Log.d("VS", "Recorder initialized");
 
-                recorder.startRecording();
-                int counter = 0;
+            recorder.startRecording();
+            int counter = 0;
 
-                while(status == true) {
+            while(status == true) {
 
-                    //reading data from MIC into buffer
-                    minBufSize = recorder.read(buffer, 0, buffer.length);
+                minBufSize = recorder.read(buffer, 0, buffer.length);
 
-                    ws.send(ByteString.of(buffer));
-                    System.out.println("MinBufferSize: " +minBufSize);
-                    counter = counter + 1;
-                    if(counter > 500) { break;}
+                if(AudioRecord.ERROR_INVALID_OPERATION != minBufSize){
+                    int foundPeak=searchThreshold(buffer,threshold);
+                    if (foundPeak>-1){ //found signal
+                        //record signal
+                        byte[] byteBuffer =ShortToByte(buffer, minBufSize);
+                        ws.send(ByteString.of(byteBuffer));
+                        counter = 0;
+                    } else{
+                        counter = counter + 1;
+                        Log.d("STTRESPONSE", "silence detected-" + String.valueOf(counter));
+                        if (counter > 50) {
+                            stopRecording();
+                            Log.d("STTRESPONSE", "Stopping because no speech is detected for 50 counter");
+                            MainActivity.this.runOnUiThread(new Runnable() {
+                                public void run() {
+                                    Toast.makeText(getApplicationContext(), "Stopped because no speech for 5 seconds", Toast.LENGTH_LONG).show();
+                                }
+                            });
+                        }
+                        else {
+                            byte[] byteBuffer =ShortToByte(buffer, minBufSize);
+                            ws.send(ByteString.of(byteBuffer));
+                        }
+                    }
                 }
 
-                JSONObject jsonObject = new JSONObject();
-                try {
-                    jsonObject.put("eof", 1);
-                } catch (JSONException e) {
-                    e.printStackTrace();
-                }
-                ws.send(jsonObject.toString());
-
+                System.out.println("MinBufferSize: " +minBufSize);
             }
 
-        });
+            JSONObject jsonObject = new JSONObject();
+            try {
+                jsonObject.put("eof", 1);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            ws.send(jsonObject.toString());
+        }
+    }
+
+    public void startStreaming() {
+        StreamVoice streamVoice = new StreamVoice();
+        streamThread = new Thread(streamVoice);
         streamThread.start();
+    }
+
+    byte [] ShortToByte(short [] input, int elements) {
+        int short_index, byte_index;
+        int iterations = elements; //input.length;
+        byte [] buffer = new byte[iterations * 2];
+
+        short_index = byte_index = 0;
+
+        for(/*NOP*/; short_index != iterations; /*NOP*/)
+        {
+            buffer[byte_index]     = (byte) (input[short_index] & 0x00FF);
+            buffer[byte_index + 1] = (byte) ((input[short_index] & 0xFF00) >> 8);
+
+            ++short_index; byte_index += 2;
+        }
+
+        return buffer;
+    }
+
+    int searchThreshold(short[]arr,short thr){
+        int peakIndex;
+        int arrLen=arr.length;
+        for (peakIndex=0;peakIndex<arrLen;peakIndex++){
+            if ((arr[peakIndex]>=thr) || (arr[peakIndex]<=-thr)) {
+                return peakIndex;
+            }
+        }
+        return -1; //not found
     }
 }
